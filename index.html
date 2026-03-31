@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Smart Split</title>
+
+  <!-- 🔥 FONT -->
+  <link href="https://fonts.cdnfonts.com/css/bohemian-soul" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: "Century Gothic", system-ui, sans-serif;
+      margin: 0;
+      padding: 20px;
+      color: #fff;
+
+      background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.8)),
+        url("https://images.unsplash.com/photo-1567427017947-545c5f8d16ad");
+      background-size: cover;
+      background-attachment: fixed;
+    }
+
+    .container { max-width: 900px; margin: auto; }
+
+    h2 {
+      text-align: center;
+      font-family: "Andrea Bilarosa", cursive;
+      font-size: 35px;
+    }
+
+    .card {
+      background: rgba(255,255,255,0.08);
+      backdrop-filter: blur(20px);
+      border-radius: 18px;
+      padding: 20px;
+      margin: 15px 0;
+      border: 1px solid rgba(255,255,255,0.2);
+      box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+      transition: 0.5s;
+    }
+
+    .card:hover { transform: translateY(-2px); }
+
+    input {
+      padding: 10px;
+      margin: 5px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.1);
+      color: white;
+      outline: none;
+    }
+
+    button {
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.3);
+      cursor: pointer;
+      background: rgba(255,255,255,0.1);
+      color: white;
+    }
+
+    button:hover {
+      transform: scale(1.05);
+      background: rgba(255,255,255,0.2);
+    }
+
+    .btn-danger { background: rgba(255,0,0,0.2); }
+
+    .group {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    .group:hover {
+      background: rgba(255,255,255,0.1);
+      transform: translateX(5px);
+    }
+
+    .positive { color: #00ffab; }
+    .negative { color: #ff6b6b; }
+
+    /* 🔥 Smooth animation */
+    #groupView {
+      max-height: 0;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all 0.4s ease;
+    }
+
+    #groupView.open {
+      max-height: 1200px;
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .expense {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    small {
+      opacity: 0.6;
+      font-size: 11px;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h2> Smart Split</h2>
+
+<div class="card">
+  <input id="gname" placeholder="Group Name">
+  <input id="members" placeholder="Members (comma)">
+  <button onclick="createGroup()">Create</button>
+</div>
+
+<div class="card">
+  <h3>Groups</h3>
+  <div id="groups"></div>
+</div>
+
+<div class="card">
+  <h3>People Balances</h3>
+  <div id="peopleBalances"></div>
+</div>
+
+<div id="groupView"></div>
+
+</div>
+
+<script>
+const API = "http://localhost:3000";
+let openedGroupId = null;
+
+// ================= CREATE GROUP =================
+async function createGroup() {
+  if (!gname.value) return alert("Enter group name");
+
+  const membersArr = members.value
+    .split(",")
+    .map(m => m.trim())
+    .filter(m => m);
+
+  const res = await fetch(API + "/groups", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      name: gname.value,
+      members: membersArr
+    })
+  });
+
+  if (!res.ok) {
+    const msg = await res.json();
+    return alert(msg.error);
+  }
+
+  gname.value = "";
+  members.value = "";
+
+  loadGroups();
+}
+
+// ================= LOAD =================
+async function loadGroups() {
+  const res = await fetch(API + "/groups");
+  const data = await res.json();
+
+  groups.innerHTML = "";
+  peopleBalances.innerHTML = "";
+
+  let globalBalances = {};
+
+  for (let g of data) {
+
+    const div = document.createElement("div");
+    div.className = "group";
+
+    const name = document.createElement("span");
+    name.innerHTML = `<b>${g.name}</b>`;
+    name.onclick = () => openGroup(g);
+
+    const del = document.createElement("button");
+    del.innerText = "Delete";
+    del.className = "btn-danger";
+    del.onclick = () => deleteGroup(g.id);
+
+    div.appendChild(name);
+    div.appendChild(del);
+    groups.appendChild(div);
+
+    const res2 = await fetch(API + "/groups/" + g.id + "/balance");
+    const balance = await res2.json();
+
+    g.members.forEach(m => {
+      if (!(m in globalBalances)) globalBalances[m] = 0;
+    });
+
+    for (let p in balance) {
+      globalBalances[p] += balance[p];
+    }
+  }
+
+  for (let p in globalBalances) {
+    let val = Math.round(globalBalances[p]);
+    const d = document.createElement("div");
+    d.innerHTML = `${p}: <span class="${val>=0?'positive':'negative'}">₹${val}</span>`;
+    peopleBalances.appendChild(d);
+  }
+}
+
+// ================= DELETE GROUP =================
+async function deleteGroup(id) {
+  await fetch(API + "/groups/" + id, { method: "DELETE" });
+  groupView.classList.remove("open");
+  groupView.innerHTML = "";
+  openedGroupId = null;
+  loadGroups();
+}
+
+// ================= OPEN GROUP =================
+async function openGroup(group) {
+
+  if (openedGroupId === group.id) {
+    groupView.classList.remove("open");
+    setTimeout(() => {
+      groupView.innerHTML = "";
+      openedGroupId = null;
+    }, 300);
+    return;
+  }
+
+  openedGroupId = group.id;
+
+  const res = await fetch(API + "/groups");
+  const all = await res.json();
+  const g = all.find(x => x.id === group.id);
+
+  const balRes = await fetch(API + "/groups/" + g.id + "/balance");
+  const balance = await balRes.json();
+
+  let html = `<div class="card"><h3>${g.name}</h3><h4>Balances</h4>`;
+
+  for (let p in balance) {
+    let val = Math.round(balance[p]);
+    html += `${p}: <span class="${val>=0?'positive':'negative'}">₹${val}</span><br>`;
+  }
+
+  html += `
+    <hr>
+    <input id="memberEdit" value="${g.members.join(", ")}">
+    <button onclick="updateMembers('${g.id}')">Update Members</button>
+
+    <hr>
+
+    <input id="desc" placeholder="Description">
+    <input id="amt" placeholder="Amount">
+    <input id="paidBy" placeholder="Paid By">
+    <button onclick="addExpense('${g.id}')">Add Expense</button>
+
+    <h4>Expenses</h4>
+    <div id="expenses"></div>
+  </div>`;
+
+  groupView.classList.remove("open");
+
+  setTimeout(() => {
+    groupView.innerHTML = html;
+    groupView.classList.add("open");
+    renderExpenses(g);
+  }, 200);
+}
+
+// ================= UPDATE MEMBERS =================
+async function updateMembers(id) {
+  const arr = memberEdit.value.split(",").map(m=>m.trim()).filter(m=>m);
+
+  const res = await fetch(API + "/groups/" + id + "/members", {
+    method: "PUT",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ members: arr })
+  });
+
+  if (!res.ok) {
+    const msg = await res.text();
+    return alert(msg);
+  }
+
+  loadGroups();
+  openGroup({ id });
+}
+
+// ================= ADD EXPENSE =================
+async function addExpense(id) {
+  if (!desc.value || !amt.value || !paidBy.value) {
+    return alert("Fill all fields");
+  }
+
+  const res = await fetch(API + "/groups/" + id + "/expense", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      desc: desc.value,
+      amount: Number(amt.value),
+      paidBy: paidBy.value
+    })
+  });
+
+  if (!res.ok) {
+    const msg = await res.json();
+    return alert(msg.error);
+  }
+
+  loadGroups();
+  openGroup({ id });
+}
+
+// ================= RENDER =================
+function renderExpenses(group) {
+  const div = document.getElementById("expenses");
+  div.innerHTML = "";
+
+  group.expenses.forEach((e, i) => {
+    const row = document.createElement("div");
+    row.className = "expense";
+
+    row.innerHTML = `
+      <div>
+        ${e.desc} - ₹${e.amount} (by ${e.paidBy})
+        <br>
+        <small>${e.date ? new Date(e.date).toLocaleString() : ""}</small>
+      </div>
+      <button onclick="deleteExpense('${group.id}', ${i})">X</button>
+    `;
+
+    div.appendChild(row);
+  });
+}
+
+// ================= DELETE EXPENSE =================
+async function deleteExpense(id, i) {
+  await fetch(API + "/groups/" + id + "/expense/" + i, {
+    method: "DELETE"
+  });
+
+  loadGroups();
+  openGroup({ id });
+}
+
+// ================= ENTER KEY SUPPORT =================
+document.addEventListener("keydown", function(e) {
+
+  if (e.key !== "Enter") return;
+
+  // CREATE GROUP
+  if (document.activeElement === gname || document.activeElement === members) {
+    createGroup();
+    return;
+  }
+
+  // ADD EXPENSE
+  if (document.getElementById("desc") &&
+      ["desc","amt","paidBy"].includes(document.activeElement.id)) {
+    if (openedGroupId) addExpense(openedGroupId);
+    return;
+  }
+
+  // UPDATE MEMBERS
+  if (document.activeElement.id === "memberEdit") {
+    if (openedGroupId) updateMembers(openedGroupId);
+  }
+
+});
+
+// INIT
+loadGroups();
+</script>
+
+</body>
+</html>
